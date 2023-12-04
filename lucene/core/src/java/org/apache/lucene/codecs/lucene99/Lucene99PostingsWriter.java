@@ -38,10 +38,7 @@ import org.apache.lucene.index.NumericDocValues;
 import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.IndexOutput;
-import org.apache.lucene.util.ArrayUtil;
-import org.apache.lucene.util.BitUtil;
-import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.IOUtils;
+import org.apache.lucene.util.*;
 
 /**
  * Concrete class that writes docId(maybe frq,pos,offset,payloads) list with postings format.
@@ -60,14 +57,14 @@ public final class Lucene99PostingsWriter extends PushPostingsWriterBase {
   static final IntBlockTermState emptyState = new IntBlockTermState();
   IntBlockTermState lastState;
 
-  // Holds starting file pointers for current term:
+  //当前处理的term在各个索引文件中的起始位置
   private long docStartFP;
   private long posStartFP;
   private long payStartFP;
 
-  final long[] docDeltaBuffer;
-  final long[] freqBuffer;
-  private int docBufferUpto;
+  final long[] docDeltaBuffer; //docID差值缓存，最终持久化是进行批量压缩编码的
+  final long[] freqBuffer; // 频率缓存，最终持久化是进行批量压缩编码的
+  private int docBufferUpto; // docDeltaBuffer和freqBuffer中下一个可以写入的位置
 
   final long[] posDeltaBuffer;
   final long[] payloadLengthBuffer;
@@ -78,9 +75,9 @@ public final class Lucene99PostingsWriter extends PushPostingsWriterBase {
   private byte[] payloadBytes;
   private int payloadByteUpto;
 
-  private int lastBlockDocID;
-  private long lastBlockPosFP;
-  private long lastBlockPayFP;
+  private int lastBlockDocID; //上一个block中的最后一个docID
+  private long lastBlockPosFP;//上一个block在pos中的结束位置
+  private long lastBlockPayFP;//上一个block在pay中的结束位置
   private int lastBlockPosBufferUpto;
   private int lastBlockPayloadByteUpto;
 
@@ -109,6 +106,7 @@ public final class Lucene99PostingsWriter extends PushPostingsWriterBase {
     IndexOutput payOut = null;
     boolean success = false;
     try {
+      //写入doc文件头
       CodecUtil.writeIndexHeader(
           docOut, DOC_CODEC, VERSION_CURRENT, state.segmentInfo.getId(), state.segmentSuffix);
       final ForUtil forUtil = new ForUtil();
@@ -196,7 +194,7 @@ public final class Lucene99PostingsWriter extends PushPostingsWriterBase {
 
   @Override
   public void startTerm(NumericDocValues norms) {
-    docStartFP = docOut.getFilePointer();
+    docStartFP = docOut.getFilePointer();//默认是61
     if (writePositions) {
       posStartFP = posOut.getFilePointer();
       if (writePayloads || writeOffsets) {
@@ -215,7 +213,11 @@ public final class Lucene99PostingsWriter extends PushPostingsWriterBase {
     // Have collected a block of docs, and get a new doc.
     // Should write skip data as well as postings list for
     // current block.
-    if (lastBlockDocID != -1 && docBufferUpto == 0) {
+
+    if (lastBlockDocID != -1 && docBufferUpto == 0) {//每隔128写入
+
+      SourceLogger.info(this.getClass(),"startDoc docId=%s, lastBlockDocID=%s,docCount=%s",docID,lastBlockDocID,docCount);
+
       skipWriter.bufferSkip(
           lastBlockDocID,
           competitiveFreqNormAccumulator,
@@ -234,7 +236,7 @@ public final class Lucene99PostingsWriter extends PushPostingsWriterBase {
           "docs out of order (" + docID + " <= " + lastDocID + " )", docOut);
     }
 
-    docDeltaBuffer[docBufferUpto] = docDelta;
+    docDeltaBuffer[docBufferUpto] = docDelta;//记录差值
     if (writeFreqs) {
       freqBuffer[docBufferUpto] = termDocFreq;
     }
@@ -242,7 +244,7 @@ public final class Lucene99PostingsWriter extends PushPostingsWriterBase {
     docBufferUpto++;
     docCount++;
 
-    if (docBufferUpto == BLOCK_SIZE) {
+    if (docBufferUpto == BLOCK_SIZE) {//每隔128，把docDeltaBuffer写入docOut
       forDeltaUtil.encodeDeltas(docDeltaBuffer, docOut);
       if (writeFreqs) {
         pforUtil.encode(freqBuffer, docOut);
@@ -338,7 +340,7 @@ public final class Lucene99PostingsWriter extends PushPostingsWriterBase {
     // Since we don't know df for current term, we had to buffer
     // those skip data for each block, and when a new doc comes,
     // write them to skip file.
-    if (docBufferUpto == BLOCK_SIZE) {
+    if (docBufferUpto == BLOCK_SIZE) {//达到128
       lastBlockDocID = lastDocID;
       if (posOut != null) {
         if (payOut != null) {
@@ -365,7 +367,7 @@ public final class Lucene99PostingsWriter extends PushPostingsWriterBase {
     // docFreq == 1, don't write the single docid/freq to a separate file along with a pointer to
     // it.
     final int singletonDocID;
-    if (state.docFreq == 1) {
+    if (state.docFreq == 1) {//只有一个文档
       // pulse the singleton docid into the term dictionary, freq is implicitly totalTermFreq
       singletonDocID = (int) docDeltaBuffer[0];
     } else {
@@ -450,17 +452,17 @@ public final class Lucene99PostingsWriter extends PushPostingsWriterBase {
     }
 
     long skipOffset;
-    if (docCount > BLOCK_SIZE) {
+    if (docCount > BLOCK_SIZE) {// 至少一个block说明肯定存在跳表，需要持久化跳表
       skipOffset = skipWriter.writeSkip(docOut) - docStartFP;
     } else {
       skipOffset = -1;
     }
-
+    // state中的这些信息就是term的元信息，会存储在term字典中
     state.docStartFP = docStartFP;
     state.posStartFP = posStartFP;
     state.payStartFP = payStartFP;
     state.singletonDocID = singletonDocID;
-    state.skipOffset = skipOffset;
+    state.skipOffset = skipOffset; //skipOffset表示skipData相对docStartFP的初始位置
     state.lastPosBlockOffset = lastPosBlockOffset;
     docBufferUpto = 0;
     posBufferUpto = 0;

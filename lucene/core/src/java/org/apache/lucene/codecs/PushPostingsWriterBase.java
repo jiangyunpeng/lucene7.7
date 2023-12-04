@@ -136,7 +136,7 @@ public abstract class PushPostingsWriterBase extends PostingsWriterBase {
       docFreq++;
       docsSeen.set(docID);
       int freq;
-      if (writeFreqs) {
+      if (writeFreqs) {//是否记录词频,string不记录，text记录
         freq = postingsEnum.freq();
         totalTermFreq += freq;
       } else {

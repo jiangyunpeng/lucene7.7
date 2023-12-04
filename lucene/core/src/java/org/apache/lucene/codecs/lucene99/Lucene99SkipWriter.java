@@ -19,12 +19,14 @@ package org.apache.lucene.codecs.lucene99;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
+
 import org.apache.lucene.codecs.CompetitiveImpactAccumulator;
 import org.apache.lucene.codecs.MultiLevelSkipListWriter;
 import org.apache.lucene.index.Impact;
 import org.apache.lucene.store.ByteBuffersDataOutput;
 import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.IndexOutput;
+import org.apache.lucene.util.SourceLogger;
 
 /**
  * Write skip lists with multiple levels, and support skip within block ints.
@@ -46,188 +48,198 @@ import org.apache.lucene.store.IndexOutput;
  * uptos(position, payload). 4. start offset.
  */
 public final class Lucene99SkipWriter extends MultiLevelSkipListWriter {
-  private int[] lastSkipDoc;
-  private long[] lastSkipDocPointer;
-  private long[] lastSkipPosPointer;
-  private long[] lastSkipPayPointer;
+    private int[] lastSkipDoc;         //下标是level，值是指定level的上一个跳表节点的docID
+    private long[] lastSkipDocPointer; //下标是level，值是指定level的上一个block的doc索引文件的结束位置
+    private long[] lastSkipPosPointer; //下标是level
+    private long[] lastSkipPayPointer; //下标是level
 
-  private final IndexOutput docOut;
-  private final IndexOutput posOut;
-  private final IndexOutput payOut;
+    private final IndexOutput docOut;
+    private final IndexOutput posOut;
+    private final IndexOutput payOut;
 
-  private int curDoc;
-  private long curDocPointer;
-  private long curPosPointer;
-  private long curPayPointer;
-  private int curPosBufferUpto;
-  private int curPayloadByteUpto;
-  private CompetitiveImpactAccumulator[] curCompetitiveFreqNorms;
-  private boolean fieldHasPositions;
-  private boolean fieldHasOffsets;
-  private boolean fieldHasPayloads;
+    private int curDoc; // 当前block末尾那个docID
+    private long curDocPointer; // 当前block在doc文件的结束位置
+    private long curPosPointer;  // 当前block在pos文件的结束位置
+    private long curPayPointer;
+    private int curPosBufferUpto;
+    private int curPayloadByteUpto;
+    private CompetitiveImpactAccumulator[] curCompetitiveFreqNorms;
+    private boolean fieldHasPositions;
+    private boolean fieldHasOffsets;
+    private boolean fieldHasPayloads;
 
-  public Lucene99SkipWriter(
-      int maxSkipLevels,
-      int blockSize,
-      int docCount,
-      IndexOutput docOut,
-      IndexOutput posOut,
-      IndexOutput payOut) {
-    super(blockSize, 8, maxSkipLevels, docCount);
-    this.docOut = docOut;
-    this.posOut = posOut;
-    this.payOut = payOut;
+    public Lucene99SkipWriter(
+            int maxSkipLevels,
+            int blockSize,
+            int docCount,
+            IndexOutput docOut,
+            IndexOutput posOut,
+            IndexOutput payOut) {
+        super(blockSize, 8, maxSkipLevels, docCount);
+        this.docOut = docOut;
+        this.posOut = posOut;
+        this.payOut = payOut;
 
-    lastSkipDoc = new int[maxSkipLevels];
-    lastSkipDocPointer = new long[maxSkipLevels];
-    if (posOut != null) {
-      lastSkipPosPointer = new long[maxSkipLevels];
-      if (payOut != null) {
-        lastSkipPayPointer = new long[maxSkipLevels];
-      }
-    }
-    curCompetitiveFreqNorms = new CompetitiveImpactAccumulator[maxSkipLevels];
-    for (int i = 0; i < maxSkipLevels; ++i) {
-      curCompetitiveFreqNorms[i] = new CompetitiveImpactAccumulator();
-    }
-  }
-
-  public void setField(
-      boolean fieldHasPositions, boolean fieldHasOffsets, boolean fieldHasPayloads) {
-    this.fieldHasPositions = fieldHasPositions;
-    this.fieldHasOffsets = fieldHasOffsets;
-    this.fieldHasPayloads = fieldHasPayloads;
-  }
-
-  // tricky: we only skip data for blocks (terms with more than 128 docs), but re-init'ing the
-  // skipper
-  // is pretty slow for rare terms in large segments as we have to fill O(log #docs in segment) of
-  // junk.
-  // this is the vast majority of terms (worst case: ID field or similar).  so in resetSkip() we
-  // save
-  // away the previous pointers, and lazy-init only if we need to buffer skip data for the term.
-  private boolean initialized;
-  long lastDocFP;
-  long lastPosFP;
-  long lastPayFP;
-
-  @Override
-  public void resetSkip() {
-    lastDocFP = docOut.getFilePointer();
-    if (fieldHasPositions) {
-      lastPosFP = posOut.getFilePointer();
-      if (fieldHasOffsets || fieldHasPayloads) {
-        lastPayFP = payOut.getFilePointer();
-      }
-    }
-    if (initialized) {
-      for (CompetitiveImpactAccumulator acc : curCompetitiveFreqNorms) {
-        acc.clear();
-      }
-    }
-    initialized = false;
-  }
-
-  private void initSkip() {
-    if (!initialized) {
-      super.resetSkip();
-      Arrays.fill(lastSkipDoc, 0);
-      Arrays.fill(lastSkipDocPointer, lastDocFP);
-      if (fieldHasPositions) {
-        Arrays.fill(lastSkipPosPointer, lastPosFP);
-        if (fieldHasOffsets || fieldHasPayloads) {
-          Arrays.fill(lastSkipPayPointer, lastPayFP);
+        lastSkipDoc = new int[maxSkipLevels];
+        lastSkipDocPointer = new long[maxSkipLevels];
+        if (posOut != null) {
+            lastSkipPosPointer = new long[maxSkipLevels];
+            if (payOut != null) {
+                lastSkipPayPointer = new long[maxSkipLevels];
+            }
         }
-      }
-      // sets of competitive freq,norm pairs should be empty at this point
-      assert Arrays.stream(curCompetitiveFreqNorms)
-              .map(CompetitiveImpactAccumulator::getCompetitiveFreqNormPairs)
-              .mapToInt(Collection::size)
-              .sum()
-          == 0;
-      initialized = true;
-    }
-  }
-
-  /** Sets the values for the current skip data. */
-  public void bufferSkip(
-      int doc,
-      CompetitiveImpactAccumulator competitiveFreqNorms,
-      int numDocs,
-      long posFP,
-      long payFP,
-      int posBufferUpto,
-      int payloadByteUpto)
-      throws IOException {
-    initSkip();
-    this.curDoc = doc;
-    this.curDocPointer = docOut.getFilePointer();
-    this.curPosPointer = posFP;
-    this.curPayPointer = payFP;
-    this.curPosBufferUpto = posBufferUpto;
-    this.curPayloadByteUpto = payloadByteUpto;
-    this.curCompetitiveFreqNorms[0].addAll(competitiveFreqNorms);
-    bufferSkip(numDocs);
-  }
-
-  private final ByteBuffersDataOutput freqNormOut = ByteBuffersDataOutput.newResettableInstance();
-
-  @Override
-  protected void writeSkipData(int level, DataOutput skipBuffer) throws IOException {
-
-    int delta = curDoc - lastSkipDoc[level];
-
-    skipBuffer.writeVInt(delta);
-    lastSkipDoc[level] = curDoc;
-
-    skipBuffer.writeVLong(curDocPointer - lastSkipDocPointer[level]);
-    lastSkipDocPointer[level] = curDocPointer;
-
-    if (fieldHasPositions) {
-
-      skipBuffer.writeVLong(curPosPointer - lastSkipPosPointer[level]);
-      lastSkipPosPointer[level] = curPosPointer;
-      skipBuffer.writeVInt(curPosBufferUpto);
-
-      if (fieldHasPayloads) {
-        skipBuffer.writeVInt(curPayloadByteUpto);
-      }
-
-      if (fieldHasOffsets || fieldHasPayloads) {
-        skipBuffer.writeVLong(curPayPointer - lastSkipPayPointer[level]);
-        lastSkipPayPointer[level] = curPayPointer;
-      }
+        curCompetitiveFreqNorms = new CompetitiveImpactAccumulator[maxSkipLevels];
+        for (int i = 0; i < maxSkipLevels; ++i) {
+            curCompetitiveFreqNorms[i] = new CompetitiveImpactAccumulator();
+        }
     }
 
-    CompetitiveImpactAccumulator competitiveFreqNorms = curCompetitiveFreqNorms[level];
-    assert competitiveFreqNorms.getCompetitiveFreqNormPairs().size() > 0;
-    if (level + 1 < numberOfSkipLevels) {
-      curCompetitiveFreqNorms[level + 1].addAll(competitiveFreqNorms);
+    public void setField(
+            boolean fieldHasPositions, boolean fieldHasOffsets, boolean fieldHasPayloads) {
+        this.fieldHasPositions = fieldHasPositions;
+        this.fieldHasOffsets = fieldHasOffsets;
+        this.fieldHasPayloads = fieldHasPayloads;
     }
-    writeImpacts(competitiveFreqNorms, freqNormOut);
-    skipBuffer.writeVInt(Math.toIntExact(freqNormOut.size()));
-    freqNormOut.copyTo(skipBuffer);
-    freqNormOut.reset();
-    competitiveFreqNorms.clear();
-  }
 
-  public static void writeImpacts(CompetitiveImpactAccumulator acc, DataOutput out)
-      throws IOException {
-    Collection<Impact> impacts = acc.getCompetitiveFreqNormPairs();
-    Impact previous = new Impact(0, 0);
-    for (Impact impact : impacts) {
-      assert impact.freq > previous.freq;
-      assert Long.compareUnsigned(impact.norm, previous.norm) > 0;
-      int freqDelta = impact.freq - previous.freq - 1;
-      long normDelta = impact.norm - previous.norm - 1;
-      if (normDelta == 0) {
-        // most of time, norm only increases by 1, so we can fold everything in a single byte
-        out.writeVInt(freqDelta << 1);
-      } else {
-        out.writeVInt((freqDelta << 1) | 1);
-        out.writeZLong(normDelta);
-      }
-      previous = impact;
+    // tricky: we only skip data for blocks (terms with more than 128 docs), but re-init'ing the
+    // skipper
+    // is pretty slow for rare terms in large segments as we have to fill O(log #docs in segment) of
+    // junk.
+    // this is the vast majority of terms (worst case: ID field or similar).  so in resetSkip() we
+    // save
+    // away the previous pointers, and lazy-init only if we need to buffer skip data for the term.
+    private boolean initialized;
+    long lastDocFP;
+    long lastPosFP;
+    long lastPayFP;
+
+    @Override
+    public void resetSkip() {
+        lastDocFP = docOut.getFilePointer();
+        if (fieldHasPositions) {
+            lastPosFP = posOut.getFilePointer();
+            if (fieldHasOffsets || fieldHasPayloads) {
+                lastPayFP = payOut.getFilePointer();
+            }
+        }
+        if (initialized) {
+            for (CompetitiveImpactAccumulator acc : curCompetitiveFreqNorms) {
+                acc.clear();
+            }
+        }
+        initialized = false;
     }
-  }
+
+    private void initSkip() {
+        if (!initialized) {
+            super.resetSkip();
+            Arrays.fill(lastSkipDoc, 0);
+            Arrays.fill(lastSkipDocPointer, lastDocFP);
+            if (fieldHasPositions) {
+                Arrays.fill(lastSkipPosPointer, lastPosFP);
+                if (fieldHasOffsets || fieldHasPayloads) {
+                    Arrays.fill(lastSkipPayPointer, lastPayFP);
+                }
+            }
+            // sets of competitive freq,norm pairs should be empty at this point
+            assert Arrays.stream(curCompetitiveFreqNorms)
+                    .map(CompetitiveImpactAccumulator::getCompetitiveFreqNormPairs)
+                    .mapToInt(Collection::size)
+                    .sum()
+                    == 0;
+            initialized = true;
+        }
+    }
+
+    /**
+     * Sets the values for the current skip data.
+     */
+    public void bufferSkip(
+            int doc,
+            CompetitiveImpactAccumulator competitiveFreqNorms,
+            int numDocs,
+            long posFP,
+            long payFP,
+            int posBufferUpto,
+            int payloadByteUpto)
+            throws IOException {
+        initSkip();
+        this.curDoc = doc;
+        this.curDocPointer = docOut.getFilePointer();
+        this.curPosPointer = posFP;
+        this.curPayPointer = payFP;
+        this.curPosBufferUpto = posBufferUpto;
+        this.curPayloadByteUpto = payloadByteUpto;
+        this.curCompetitiveFreqNorms[0].addAll(competitiveFreqNorms);
+        bufferSkip(numDocs);
+    }
+
+    private final ByteBuffersDataOutput freqNormOut = ByteBuffersDataOutput.newResettableInstance();
+
+    @Override
+    protected void writeSkipData(int level, DataOutput skipBuffer) throws IOException {
+
+        SourceLogger.info(
+                this.getClass(),
+                "writeSkipData curDoc=%s,lastSkipDoc[%s]=%s,curDocPointer=%s,lastSkipDocPointer[%s]=%s"
+                , curDoc, level, lastSkipDoc[level], curDocPointer, level, lastSkipDocPointer[level]);
+
+        int delta = curDoc - lastSkipDoc[level];
+
+        skipBuffer.writeVInt(delta);  // 写入block的docID差值(DocSkip)
+        lastSkipDoc[level] = curDoc; // 保存指定level的上一个跳表节点的docID
+
+        skipBuffer.writeVLong(curDocPointer - lastSkipDocPointer[level]);    // 写入block在doc索引文件中的大小(DocFPSkip)
+        lastSkipDocPointer[level] = curDocPointer;
+
+        if (fieldHasPositions) {
+            // 写入block在pos索引文件中的大小(PosFPSkip)
+            skipBuffer.writeVLong(curPosPointer - lastSkipPosPointer[level]);
+            lastSkipPosPointer[level] = curPosPointer;
+            // 因为position是按block存储的，但是有可能一个block是多个doc共享的，所以需要记录当前skip在block的截止位置
+            // PosBlockOffset
+            skipBuffer.writeVInt(curPosBufferUpto);
+
+            if (fieldHasPayloads) {
+                skipBuffer.writeVInt(curPayloadByteUpto);//(PayLength)
+            }
+
+            if (fieldHasOffsets || fieldHasPayloads) {
+                // 写入block在pay索引文件中的大小(PayFPSkip)
+                skipBuffer.writeVLong(curPayPointer - lastSkipPayPointer[level]);
+                lastSkipPayPointer[level] = curPayPointer;
+            }
+        }
+
+        CompetitiveImpactAccumulator competitiveFreqNorms = curCompetitiveFreqNorms[level];
+        assert competitiveFreqNorms.getCompetitiveFreqNormPairs().size() > 0;
+        if (level + 1 < numberOfSkipLevels) { // 因为跳表中上层的节点在下层肯定是存在的，所以需要把impact先存到上一层
+            curCompetitiveFreqNorms[level + 1].addAll(competitiveFreqNorms);
+        }
+        writeImpacts(competitiveFreqNorms, freqNormOut);
+        skipBuffer.writeVInt(Math.toIntExact(freqNormOut.size()));//ImpactLength
+        freqNormOut.copyTo(skipBuffer);//包括了CompetitiveFreqDelta 和 CompetitiveNormDelta
+        freqNormOut.reset();
+        competitiveFreqNorms.clear();
+    }
+
+    public static void writeImpacts(CompetitiveImpactAccumulator acc, DataOutput out)
+            throws IOException {
+        Collection<Impact> impacts = acc.getCompetitiveFreqNormPairs();
+        Impact previous = new Impact(0, 0);
+        for (Impact impact : impacts) {
+            assert impact.freq > previous.freq;
+            assert Long.compareUnsigned(impact.norm, previous.norm) > 0;
+            int freqDelta = impact.freq - previous.freq - 1;
+            long normDelta = impact.norm - previous.norm - 1;
+            if (normDelta == 0) {
+                // most of time, norm only increases by 1, so we can fold everything in a single byte
+                out.writeVInt(freqDelta << 1);
+            } else {
+                out.writeVInt((freqDelta << 1) | 1);
+                out.writeZLong(normDelta);
+            }
+            previous = impact;
+        }
+    }
 }

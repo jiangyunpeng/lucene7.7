@@ -49,7 +49,7 @@ import org.apache.lucene.store.IndexInput;
  * <p>Therefore, we'll trim df before passing it to the interface. see trim(int)
  */
 public class Lucene99SkipReader extends MultiLevelSkipListReader {
-  private long[] docPointer;
+  private long[] docPointer; //doc文件中指向SkipData的指针,docPointer=docBasePointer+DocFPSkip+(DocFPSkip...)
   private long[] posPointer;
   private long[] payPointer;
   private int[] posBufferUpto;
@@ -180,8 +180,8 @@ public class Lucene99SkipReader extends MultiLevelSkipListReader {
 
   @Override
   protected int readSkipData(int level, IndexInput skipStream) throws IOException {
-    int delta = skipStream.readVInt();
-    docPointer[level] += skipStream.readVLong();
+    int delta = skipStream.readVInt();//读取差值
+    docPointer[level] += skipStream.readVLong();// docPointer = docBasePointer+DocFPSkip+(DocFPSkip...)
 
     if (posPointer != null) {
       posPointer[level] += skipStream.readVLong();

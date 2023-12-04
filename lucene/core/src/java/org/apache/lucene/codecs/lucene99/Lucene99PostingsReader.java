@@ -41,10 +41,7 @@ import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SlowImpactsEnum;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.util.ArrayUtil;
-import org.apache.lucene.util.BitUtil;
-import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.IOUtils;
+import org.apache.lucene.util.*;
 
 /**
  * Concrete class that reads docId(maybe frq,pos,offset,payloads) list with postings format.
@@ -310,7 +307,7 @@ public final class Lucene99PostingsReader extends PostingsReaderBase {
     final ForDeltaUtil forDeltaUtil = new ForDeltaUtil(forUtil);
     final PForUtil pforUtil = new PForUtil(forUtil);
 
-    private final long[] docBuffer = new long[BLOCK_SIZE + 1];
+    private final long[] docBuffer = new long[BLOCK_SIZE + 1];//记录完成的docId
     private final long[] freqBuffer = new long[BLOCK_SIZE];
 
     private int docBufferUpto;
@@ -450,10 +447,11 @@ public final class Lucene99PostingsReader extends PostingsReaderBase {
         isFreqsRead = true;
       }
 
-      final int left = docFreq - blockUpto;
+      final int left = docFreq - blockUpto;//剩余文档数量
       assert left >= 0;
 
-      if (left >= BLOCK_SIZE) {
+      if (left >= BLOCK_SIZE) {//大于128采用PackedInts编码
+        //accum是累加值，doc文件记录是差值，需要加上accum再写入docBuffer数组中
         forDeltaUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
 
         if (indexHasFreq) {
@@ -473,7 +471,7 @@ public final class Lucene99PostingsReader extends PostingsReaderBase {
         // Read vInts:
         readVIntBlock(docIn, docBuffer, freqBuffer, left, indexHasFreq);
         prefixSum(docBuffer, left, accum);
-        docBuffer[left] = NO_MORE_DOCS;
+        docBuffer[left] = NO_MORE_DOCS;//到达末尾
         blockUpto += left;
       }
       accum = docBuffer[BLOCK_SIZE - 1];
@@ -495,6 +493,9 @@ public final class Lucene99PostingsReader extends PostingsReaderBase {
 
     @Override
     public int advance(int target) throws IOException {
+
+      //SourceLogger.info(this.getClass(),"advance target=%s, docTermStartFP=%s, skipOffset=%s",target,docTermStartFP,skipOffset);
+
       // current skip docID < docIDs generated from current buffer <= next skip docID
       // we don't need to skip if target is buffered already
       if (docFreq > BLOCK_SIZE && target > nextSkipDoc) {
@@ -546,7 +547,7 @@ public final class Lucene99PostingsReader extends PostingsReaderBase {
       while (true) {
         doc = docBuffer[docBufferUpto];
 
-        if (doc >= target) {
+        if (doc >= target) {//如果找到了目标退出
           break;
         }
         ++docBufferUpto;

@@ -38,13 +38,7 @@ import org.apache.lucene.store.ByteArrayDataOutput;
 import org.apache.lucene.store.ByteBuffersDataOutput;
 import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.IndexOutput;
-import org.apache.lucene.util.ArrayUtil;
-import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.BytesRefBuilder;
-import org.apache.lucene.util.FixedBitSet;
-import org.apache.lucene.util.IOUtils;
-import org.apache.lucene.util.IntsRefBuilder;
-import org.apache.lucene.util.StringHelper;
+import org.apache.lucene.util.*;
 import org.apache.lucene.util.compress.LZ4;
 import org.apache.lucene.util.compress.LowercaseAsciiCompression;
 import org.apache.lucene.util.fst.ByteSequenceOutputs;
@@ -365,7 +359,9 @@ public final class Lucene90BlockTreeTermsWriter extends FieldsConsumer {
 
         // if (DEBUG) System.out.println("write field=" + fieldInfo.name + " term=" +
         // brToString(term));
+        SourceLogger.info(this.getClass(),"write field begin field=" +field+",term="+brToString(term));
         termsWriter.write(term, termsEnum, norms);
+        //SourceLogger.info(this.getClass(),"write field end field=" +field+",term="+brToString(term));
       }
 
       termsWriter.finish();
