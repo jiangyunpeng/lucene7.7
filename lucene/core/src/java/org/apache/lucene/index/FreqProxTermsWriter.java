@@ -90,11 +90,13 @@ final class FreqProxTermsWriter extends TermsHash {
     super.flush(fieldsToFlush, state, sortMap, norms);
 
     // Gather all fields that saw any postings:
+    // 收集所有存在倒排数据的field
     List<FreqProxTermsWriterPerField> allFields = new ArrayList<>();
 
     for (TermsHashPerField f : fieldsToFlush.values()) {
       final FreqProxTermsWriterPerField perField = (FreqProxTermsWriterPerField) f;
       if (perField.getNumTerms() > 0) {
+        // 对字段中的term排序，这是因为term会使用FST来存储，FST的输入需要有序
         perField.sortTerms();
         assert perField.indexOptions != IndexOptions.NONE;
         allFields.add(perField);
@@ -109,7 +111,11 @@ final class FreqProxTermsWriter extends TermsHash {
     // Sort by field name
     CollectionUtil.introSort(allFields);
 
+    // 这里把所有需要处理的  FreqProxTermsWriterPerField 封装到 FreqProxFields中，
+    // 后面读取都需要借助  FreqProxFields，这就是本文要介绍的内容。
     Fields fields = new FreqProxFields(allFields);
+
+    // 处理删除逻辑
     applyDeletes(state, fields);
     if (sortMap != null) {
       final Sorter.DocMap docMap = sortMap;
@@ -128,7 +134,7 @@ final class FreqProxTermsWriter extends TermsHash {
             }
           };
     }
-
+    // 最终走到Lucene90BlockTreeTermsWriter#write
     try (FieldsConsumer consumer =
         state.segmentInfo.getCodec().postingsFormat().fieldsConsumer(state)) {
       consumer.write(fields, norms);

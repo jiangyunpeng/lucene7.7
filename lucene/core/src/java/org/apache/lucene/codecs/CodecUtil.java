@@ -663,8 +663,10 @@ public final class CodecUtil {
     writeBEInt(out, (int) l);
   }
 
+
   /** read int value from header / footer with big endian order */
   public static int readBEInt(DataInput in) throws IOException {
+    //从输入流中以大端字节序读取一个整数
     return ((in.readByte() & 0xFF) << 24)
         | ((in.readByte() & 0xFF) << 16)
         | ((in.readByte() & 0xFF) << 8)

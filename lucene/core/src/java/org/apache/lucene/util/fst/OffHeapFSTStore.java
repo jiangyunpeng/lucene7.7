@@ -40,9 +40,9 @@ public final class OffHeapFSTStore implements FSTStore {
   @Override
   public void init(DataInput in, long numBytes) throws IOException {
     if (in instanceof IndexInput) {
-      this.in = (IndexInput) in;
+      this.in = (IndexInput) in;//tip文件
       this.numBytes = numBytes;
-      this.offset = this.in.getFilePointer();
+      this.offset = this.in.getFilePointer();//offset
     } else {
       throw new IllegalArgumentException(
           "parameter:in should be an instance of IndexInput for using OffHeapFSTStore, not a "
@@ -62,7 +62,7 @@ public final class OffHeapFSTStore implements FSTStore {
 
   @Override
   public FST.BytesReader getReverseBytesReader() {
-    try {
+    try {//也是从mmap中返回一个小的片段
       return new ReverseRandomAccessReader(in.randomAccessSlice(offset, numBytes));
     } catch (IOException e) {
       throw new RuntimeException(e);

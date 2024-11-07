@@ -423,7 +423,7 @@ public final class Lucene99PostingsFormat extends PostingsFormat {
   public FieldsProducer fieldsProducer(SegmentReadState state) throws IOException {
     PostingsReaderBase postingsReader = new Lucene99PostingsReader(state);
     boolean success = false;
-    try {
+    try {//初始化 Lucene90BlockTreeTermsReader
       FieldsProducer ret = new Lucene90BlockTreeTermsReader(postingsReader, state);
       success = true;
       return ret;

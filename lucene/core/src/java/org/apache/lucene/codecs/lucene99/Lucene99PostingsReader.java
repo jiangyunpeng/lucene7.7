@@ -315,7 +315,7 @@ public final class Lucene99PostingsReader extends PostingsReaderBase {
     private Lucene99SkipReader skipper;
     private boolean skipped;
 
-    final IndexInput startDocIn;
+    final IndexInput startDocIn;//doc文件句柄
 
     IndexInput docIn;
     final boolean indexHasFreq;
@@ -349,7 +349,7 @@ public final class Lucene99PostingsReader extends PostingsReaderBase {
     private int singletonDocID; // docid when there is a single pulsed posting, otherwise -1
 
     public BlockDocsEnum(FieldInfo fieldInfo) throws IOException {
-      this.startDocIn = Lucene99PostingsReader.this.docIn;
+      this.startDocIn = Lucene99PostingsReader.this.docIn;//doc文件句柄
       this.docIn = null;
       indexHasFreq = fieldInfo.getIndexOptions().compareTo(IndexOptions.DOCS_AND_FREQS) >= 0;
       indexHasPos =
@@ -384,8 +384,9 @@ public final class Lucene99PostingsReader extends PostingsReaderBase {
       if (docFreq > 1) {
         if (docIn == null) {
           // lazy init
-          docIn = startDocIn.clone();
+          docIn = startDocIn.clone();//初始化倒排表docIn
         }
+        SourceLogger.info(Lucene99PostingsReader.class,"load Postings list {}",startDocIn );
         docIn.seek(docTermStartFP);
       }
 

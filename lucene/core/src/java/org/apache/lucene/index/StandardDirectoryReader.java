@@ -34,6 +34,7 @@ import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.CollectionUtil;
 import org.apache.lucene.util.IOFunction;
 import org.apache.lucene.util.IOUtils;
+import org.apache.lucene.util.SourceLogger;
 import org.apache.lucene.util.Version;
 
 /** Default implementation of {@link DirectoryReader}. */
@@ -74,6 +75,7 @@ public final class StandardDirectoryReader extends DirectoryReader {
       final IndexCommit commit,
       Comparator<LeafReader> leafSorter)
       throws IOException {
+
     return new SegmentInfos.FindSegmentsFile<DirectoryReader>(directory) {
       @Override
       protected DirectoryReader doBody(String segmentFileName) throws IOException {
@@ -86,6 +88,9 @@ public final class StandardDirectoryReader extends DirectoryReader {
         }
         SegmentInfos sis =
             SegmentInfos.readCommit(directory, segmentFileName, minSupportedMajorVersion);
+
+        SourceLogger.info(StandardDirectoryReader.class,"read SegmentInfo from {}",segmentFileName);
+
         final SegmentReader[] readers = new SegmentReader[sis.size()];
         boolean success = false;
         try {

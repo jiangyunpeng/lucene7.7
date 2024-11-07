@@ -181,7 +181,7 @@ public final class Lucene99SkipWriter extends MultiLevelSkipListWriter {
 
         SourceLogger.info(
                 this.getClass(),
-                "writeSkipData curDoc=%s,lastSkipDoc[%s]=%s,curDocPointer=%s,lastSkipDocPointer[%s]=%s"
+                "writeSkipData curDoc={},lastSkipDoc[{}]={},curDocPointer={},lastSkipDocPointer[{}]={}"
                 , curDoc, level, lastSkipDoc[level], curDocPointer, level, lastSkipDocPointer[level]);
 
         int delta = curDoc - lastSkipDoc[level];

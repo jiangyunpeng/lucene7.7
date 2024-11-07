@@ -74,17 +74,20 @@ public final class Util {
     final BytesReader fstReader = fst.getBytesReader();
 
     // TODO: would be nice not to alloc this on every lookup
+    // 获取虚拟的arc，指向的是root节点
     final FST.Arc<T> arc = fst.getFirstArc(new FST.Arc<>());
 
     // Accumulate output as we go
     T output = fst.outputs.getNoOutput();
     for (int i = 0; i < input.length; i++) {
+      // 以arc的target为起点，查找满足label的arc，如果找到的话，把arc更新为满足查找条件的arc。
+      //这里有点绕，是因为实现上为了避免频繁创建arc对象，所以都是以原地更新的方式复用arc变量。
       if (fst.findTargetArc(input.bytes[i + input.offset] & 0xFF, arc, arc, fstReader) == null) {
         return null;
       }
       output = fst.outputs.add(output, arc.output());
     }
-
+    // 如果最后一个arc指向的是可接受节点，则需要把finalOutput也加上
     if (arc.isFinal()) {
       return fst.outputs.add(output, arc.nextFinalOutput());
     } else {

@@ -29,12 +29,13 @@ public abstract class LuceneBaseTest {
                 .build();
 
         BiConsumer<Document, Long> consumer = getIndexBuilder();
-        for (long i = 2000; i < size(); ++i) {
+        for (long i = 0; i < size(); ++i) {
             Document document = new Document();
             consumer.accept(document, i);
             writer.addDocument(document);
         }
         writer.commit();
+        writer.forceMerge(1);
         writer.close();
     }
 

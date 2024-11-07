@@ -183,7 +183,7 @@ public class TermQuery extends Query {
       assert termStates.wasBuiltFor(ReaderUtil.getTopLevelContext(context))
           : "The top-reader used to create Weight is not the same as the current reader's top-reader ("
               + ReaderUtil.getTopLevelContext(context);
-      final TermState state = termStates.get(context);
+      final TermState state = termStates.get(context);//Lucene99PostingsFormat$IntBlockTermState
       if (state == null) { // term is not present in that reader
         assert termNotInReader(context.reader(), term)
             : "no termstate found but term exists in reader term=" + term;
@@ -270,15 +270,15 @@ public class TermQuery extends Query {
   public Weight createWeight(IndexSearcher searcher, ScoreMode scoreMode, float boost)
       throws IOException {
     final IndexReaderContext context = searcher.getTopReaderContext();
-    final TermStates termState;
+    final TermStates termStates;
     if (perReaderTermState == null || perReaderTermState.wasBuiltFor(context) == false) {
-      termState = TermStates.build(searcher, term, scoreMode.needsScores());
+      termStates = TermStates.build(searcher, term, scoreMode.needsScores());
     } else {
       // PRTS was pre-build for this IS
-      termState = this.perReaderTermState;
+      termStates = this.perReaderTermState;
     }
 
-    return new TermWeight(searcher, scoreMode, boost, termState);
+    return new TermWeight(searcher, scoreMode, boost, termStates);
   }
 
   @Override

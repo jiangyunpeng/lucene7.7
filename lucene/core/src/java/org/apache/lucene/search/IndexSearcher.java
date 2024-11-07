@@ -197,6 +197,7 @@ public class IndexSearcher {
 
   /** Creates a searcher searching the provided index. */
   public IndexSearcher(IndexReader r) {
+    //这里的IndexReader 实际是 StandardDirectoryReader，详见StandardDirectoryReader.open()实现
     this(r, null);
   }
 
@@ -226,6 +227,7 @@ public class IndexSearcher {
    * @lucene.experimental
    */
   public IndexSearcher(IndexReaderContext context, Executor executor) {
+    //context 实际是 CompositeReaderContext
     assert context.isTopLevel
         : "IndexSearcher's ReaderContext must be topLevel for reader" + context.reader();
     reader = context.reader();
@@ -233,7 +235,7 @@ public class IndexSearcher {
     this.taskExecutor =
         executor == null ? new TaskExecutor(Runnable::run) : new TaskExecutor(executor);
     this.readerContext = context;
-    leafContexts = context.leaves();
+    leafContexts = context.leaves();//返回segment context列表
     Function<List<LeafReaderContext>, LeafSlice[]> slicesProvider =
         executor == null
             ? leaves ->

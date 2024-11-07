@@ -13,6 +13,8 @@ import java.io.IOException;
 import java.util.function.BiConsumer;
 
 public class LuceneMUSTTest extends LuceneBaseTest {
+
+
     @Override
     protected BiConsumer<Document, Long> getIndexBuilder() {
         return (document, i) -> {

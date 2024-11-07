@@ -203,6 +203,8 @@ final class DocumentsWriterFlushControl implements Accountable, Closeable {
   }
 
   DocumentsWriterPerThread doAfterDocument(DocumentsWriterPerThread perThread) {
+
+    //这里会比较最近commit的bytes和内存可用数量
     final long delta = perThread.getCommitLastBytesUsedDelta();
     // in order to prevent contention in the case of many threads indexing small documents
     // we skip ram accounting unless the DWPT accumulated enough ram to be worthwhile
@@ -211,6 +213,7 @@ final class DocumentsWriterFlushControl implements Accountable, Closeable {
       // Skip accounting for now, we'll come back to it later when the delta is bigger
       return null;
     }
+    //SourceLogger.info(getClass(),"Auto flush segment! usedDelta:{}kb, ramBuffer:{}kb",delta/1024,ramBufferGranularity()/1024);
 
     synchronized (this) {
       // we need to commit this under lock but calculate it outside of the lock to minimize the time

@@ -216,7 +216,7 @@ public final class Lucene99PostingsWriter extends PushPostingsWriterBase {
 
     if (lastBlockDocID != -1 && docBufferUpto == 0) {//每隔128写入
 
-      SourceLogger.info(this.getClass(),"startDoc docId=%s, lastBlockDocID=%s,docCount=%s",docID,lastBlockDocID,docCount);
+      SourceLogger.info(this.getClass(),"startDoc docId={}, lastBlockDocID={},docCount={}",docID,lastBlockDocID,docCount);
 
       skipWriter.bufferSkip(
           lastBlockDocID,

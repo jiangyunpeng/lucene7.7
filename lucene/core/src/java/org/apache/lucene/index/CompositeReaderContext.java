@@ -102,23 +102,24 @@ public final class CompositeReaderContext extends IndexReaderContext {
         final LeafReader ar = (LeafReader) reader;
         final LeafReaderContext atomic =
             new LeafReaderContext(parent, ar, ord, docBase, leaves.size(), leafDocBase);
-        leaves.add(atomic);
+        leaves.add(atomic);//添加到LeafReaderContext
         leafDocBase += reader.maxDoc();
         return atomic;
       } else {
-        final CompositeReader cr = (CompositeReader) reader;
-        final List<? extends IndexReader> sequentialSubReaders = cr.getSequentialSubReaders();
-        final List<IndexReaderContext> children =
-            Arrays.asList(new IndexReaderContext[sequentialSubReaders.size()]);
+        final CompositeReader cr = (CompositeReader) reader;//实际是StandardDirectoryReader，在StandardDirectoryReader.open()返回
+        final List<? extends IndexReader> sequentialSubReaders = cr.getSequentialSubReaders();//包含的的段Reader
+        final List<IndexReaderContext> children = Arrays.asList(new IndexReaderContext[sequentialSubReaders.size()]);
         final CompositeReaderContext newParent;
         if (parent == null) {
-          newParent = new CompositeReaderContext(cr, children, leaves);
+          newParent = new CompositeReaderContext(cr, children, leaves);//初始化CompositeReaderContext包含了多个segment，这里children表示segments。
         } else {
           newParent = new CompositeReaderContext(parent, cr, ord, docBase, children);
         }
         int newDocBase = 0;
         for (int i = 0, c = sequentialSubReaders.size(); i < c; i++) {
+          //获取每个SegmentReader
           final IndexReader r = sequentialSubReaders.get(i);
+          //设置每个children IndexReaderContext
           children.set(i, build(newParent, r, i, newDocBase));
           newDocBase += r.maxDoc();
         }

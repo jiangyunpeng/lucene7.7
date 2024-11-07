@@ -24,7 +24,10 @@ import org.apache.lucene.util.Counter;
 import org.apache.lucene.util.packed.PackedInts;
 import org.apache.lucene.util.packed.PackedLongValues;
 
-/** Buffers up pending long per doc, then flushes when segment flushes. */
+/**
+ * Buffers up pending long per doc, then flushes when segment flushes.
+ *  NormValuesWriter 的作用是将文档在字段层面的“权重”信息写入索引，
+ *  */
 class NormValuesWriter {
 
   private DocsWithFieldSet docsWithField;

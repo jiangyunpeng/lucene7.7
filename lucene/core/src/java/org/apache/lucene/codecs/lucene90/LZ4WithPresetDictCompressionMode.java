@@ -150,7 +150,7 @@ public final class LZ4WithPresetDictCompressionMode extends CompressionMode {
 
   private static class LZ4WithPresetDictCompressor extends Compressor {
 
-    final ByteBuffersDataOutput compressed;
+    final ByteBuffersDataOutput compressed;//可复用的本地缓冲区
     final LZ4.FastCompressionHashTable hashTable;
     byte[] buffer;
 
@@ -176,7 +176,7 @@ public final class LZ4WithPresetDictCompressionMode extends CompressionMode {
       out.writeVInt(dictLength);
       out.writeVInt(blockLength);
 
-      compressed.reset();
+      compressed.reset();//还原缓冲区
       // Compress the dictionary first
       buffersInput.readBytes(buffer, 0, dictLength);
       doCompress(buffer, 0, dictLength, out);
@@ -185,11 +185,11 @@ public final class LZ4WithPresetDictCompressionMode extends CompressionMode {
       for (int start = dictLength; start < len; start += blockLength) {
         int l = Math.min(blockLength, len - start);
         buffersInput.readBytes(buffer, dictLength, l);
-        doCompress(buffer, dictLength, l, out);
+        doCompress(buffer, dictLength, l, out);//压缩
       }
 
       // We only wrote lengths so far, now write compressed data
-      compressed.copyTo(out);
+      compressed.copyTo(out);//缓冲区写入到fdt文件
     }
 
     @Override

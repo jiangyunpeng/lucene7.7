@@ -35,6 +35,8 @@ import org.apache.lucene.store.OutputStreamDataOutput;
 import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.Constants;
 import org.apache.lucene.util.RamUsageEstimator;
+import org.apache.lucene.util.SourceLogger;
+import org.apache.lucene.util.fst.FST.Arc.BitTable;
 
 // TODO: break this into WritableFST and ReadOnlyFST.. then
 // we can have subclasses of ReadOnlyFST to handle the
@@ -52,10 +54,13 @@ import org.apache.lucene.util.RamUsageEstimator;
 /**
  * Represents an finite state machine (FST), using a compact byte[] format.
  *
- * <p>The format is similar to what's used by Morfologik
+ * <p>
+ * The format is similar to what's used by Morfologik
  * (https://github.com/morfologik/morfologik-stemming).
  *
- * <p>See the {@link org.apache.lucene.util.fst package documentation} for some simple examples.
+ * <p>
+ * See the {@link org.apache.lucene.util.fst package documentation} for some
+ * simple examples.
  *
  * @lucene.experimental
  */
@@ -68,11 +73,18 @@ public final class FST<T> implements Accountable {
     BYTE4
   }
 
-  private static final long BASE_RAM_BYTES_USED =
-      RamUsageEstimator.shallowSizeOfInstance(FST.class);
+  private static final long BASE_RAM_BYTES_USED = RamUsageEstimator.shallowSizeOfInstance(FST.class);
 
+  // 表示这条边通向一个终止状态(final state)
+  // 比如词典中 "cat" 的最后一个 't' 就是 FINAL_ARC
   static final int BIT_FINAL_ARC = 1 << 0;
+
+  // 表示这是节点的最后一条出边
+  // 用于遍历时知道是否还有更多边要处理
   static final int BIT_LAST_ARC = 1 << 1;
+
+  // 表示目标节点紧跟在当前边之后
+  // 这是一种空间优化，避免存储完整的目标指针
   static final int BIT_TARGET_NEXT = 1 << 2;
 
   // TODO: we can free up a bit if we can nuke this:
@@ -83,12 +95,16 @@ public final class FST<T> implements Accountable {
 
   static final int BIT_ARC_HAS_FINAL_OUTPUT = 1 << 5;
 
-  /** Value of the arc flags to declare a node with fixed length arcs designed for binary search. */
+  /**
+   * Value of the arc flags to declare a node with fixed length arcs designed for
+   * binary search.
+   */
   // We use this as a marker because this one flag is illegal by itself.
   public static final byte ARCS_FOR_BINARY_SEARCH = BIT_ARC_HAS_FINAL_OUTPUT;
 
   /**
-   * Value of the arc flags to declare a node with fixed length arcs and bit table designed for
+   * Value of the arc flags to declare a node with fixed length arcs and bit table
+   * designed for
    * direct addressing.
    */
   static final byte ARCS_FOR_DIRECT_ADDRESSING = 1 << 6;
@@ -117,7 +133,8 @@ public final class FST<T> implements Accountable {
   T emptyOutput;
 
   /**
-   * A {@link BytesStore}, used during building, or during reading when the FST is very large (more
+   * A {@link BytesStore}, used during building, or during reading when the FST is
+   * very large (more
    * than 1 GB). If the FST is less than 1 GB then bytesArray is set instead.
    */
   final BytesStore bytes;
@@ -135,48 +152,57 @@ public final class FST<T> implements Accountable {
 
     // *** Arc fields.
 
-    private int label;
+    private int label; // 这条边上的值(通常是一个字符)，比如cat这个term会三条边，每个边分别是c,a,t
 
-    private T output;
+    private T output; // 这条边上的输出值
 
-    private long target;
+    private long target; // 这条边指向的节点
 
-    private byte flags;
+    private byte flags; // 状态标记位，表示这条边的各种属性
 
-    private T nextFinalOutput;
+    private T nextFinalOutput;// 如果目标节点是终止节点，这是它的输出值
 
-    private long nextArc;
+    private long nextArc;// 下一条边的位置
 
-    private byte nodeFlags;
+    private byte nodeFlags;// 目标节点的标记位
 
     // *** Fields for arcs belonging to a node with fixed length arcs.
     // So only valid when bytesPerArc != 0.
-    // nodeFlags == ARCS_FOR_BINARY_SEARCH || nodeFlags == ARCS_FOR_DIRECT_ADDRESSING.
+    // nodeFlags == ARCS_FOR_BINARY_SEARCH || nodeFlags ==
+    // ARCS_FOR_DIRECT_ADDRESSING.
+    // 用于二分查找和直接寻址的字段：
 
-    private int bytesPerArc;
+    private int bytesPerArc;// 每条边占用的字节数(固定长度时)
 
-    private long posArcsStart;
+    private long posArcsStart; // 边数组的起始位置
 
-    private int arcIdx;
+    private int arcIdx; // 当前边的索引
 
-    private int numArcs;
+    private int numArcs; // 当前节点的出边总数
 
-    // *** Fields for a direct addressing node. nodeFlags == ARCS_FOR_DIRECT_ADDRESSING.
+    // *** Fields for a direct addressing node. nodeFlags ==
+    // ARCS_FOR_DIRECT_ADDRESSING.
+    // 接寻址相关字段：
 
     /**
-     * Start position in the {@link FST.BytesReader} of the presence bits for a direct addressing
+     * Start position in the {@link FST.BytesReader} of the presence bits for a
+     * direct addressing
      * node, aka the bit-table
      */
-    private long bitTableStart;
+    private long bitTableStart; // 存在位表的起始位置
 
     /** First label of a direct addressing node. */
-    private int firstLabel;
+    private int firstLabel; // 第一个标签值
 
     /**
-     * Index of the current label of a direct addressing node. While {@link #arcIdx} is the current
-     * index in the label range, {@link #presenceIndex} is its corresponding index in the list of
-     * actually present labels. It is equal to the number of bits set before the bit at {@link
-     * #arcIdx} in the bit-table. This field is a cache to avoid to count bits set repeatedly when
+     * Index of the current label of a direct addressing node. While {@link #arcIdx}
+     * is the current
+     * index in the label range, {@link #presenceIndex} is its corresponding index
+     * in the list of
+     * actually present labels. It is equal to the number of bits set before the bit
+     * at {@link
+     * #arcIdx} in the bit-table. This field is a cache to avoid to count bits set
+     * repeatedly when
      * iterating the next arcs.
      */
     private int presenceIndex;
@@ -193,9 +219,11 @@ public final class FST<T> implements Accountable {
       bytesPerArc = other.bytesPerArc();
 
       // Fields for arcs belonging to a node with fixed length arcs.
-      // We could avoid copying them if bytesPerArc() == 0 (this was the case with previous code,
+      // We could avoid copying them if bytesPerArc() == 0 (this was the case with
+      // previous code,
       // and the current code
-      // still supports that), but it may actually help external uses of FST to have consistent arc
+      // still supports that), but it may actually help external uses of FST to have
+      // consistent arc
       // state, and debugging
       // is easier.
       posArcsStart = other.posArcsStart();
@@ -216,6 +244,7 @@ public final class FST<T> implements Accountable {
       return flag(BIT_LAST_ARC);
     }
 
+    //表示这条边通向一个终止状态，比如词典中 "cat" 的最后一个 't' 就是 FINAL_ARC
     public boolean isFinal() {
       return flag(BIT_FINAL_ARC);
     }
@@ -278,7 +307,8 @@ public final class FST<T> implements Accountable {
     }
 
     /**
-     * Address (into the byte[]) of the next arc - only for list of variable length arc. Or
+     * Address (into the byte[]) of the next arc - only for list of variable length
+     * arc. Or
      * ord/address to the next node if label == {@link #END_LABEL}.
      */
     long nextArc() {
@@ -292,7 +322,8 @@ public final class FST<T> implements Accountable {
 
     /**
      * Node header flags. Only meaningful to check if the value is either {@link
-     * #ARCS_FOR_BINARY_SEARCH} or {@link #ARCS_FOR_DIRECT_ADDRESSING} (other value when bytesPerArc
+     * #ARCS_FOR_BINARY_SEARCH} or {@link #ARCS_FOR_DIRECT_ADDRESSING} (other value
+     * when bytesPerArc
      * == 0).
      */
     public byte nodeFlags() {
@@ -305,9 +336,12 @@ public final class FST<T> implements Accountable {
     }
 
     /**
-     * Non-zero if this arc is part of a node with fixed length arcs, which means all arcs for the
-     * node are encoded with a fixed number of bytes so that we binary search or direct address. We
-     * do when there are enough arcs leaving one node. It wastes some bytes but gives faster
+     * Non-zero if this arc is part of a node with fixed length arcs, which means
+     * all arcs for the
+     * node are encoded with a fixed number of bytes so that we binary search or
+     * direct address. We
+     * do when there are enough arcs leaving one node. It wastes some bytes but
+     * gives faster
      * lookups.
      */
     public int bytesPerArc() {
@@ -315,8 +349,10 @@ public final class FST<T> implements Accountable {
     }
 
     /**
-     * How many arcs; only valid if bytesPerArc != 0 (fixed length arcs). For a node designed for
-     * binary search this is the array size. For a node designed for direct addressing, this is the
+     * How many arcs; only valid if bytesPerArc != 0 (fixed length arcs). For a node
+     * designed for
+     * binary search this is the array size. For a node designed for direct
+     * addressing, this is the
      * label range.
      */
     public int numArcs() {
@@ -332,7 +368,8 @@ public final class FST<T> implements Accountable {
     }
 
     /**
-     * Helper methods to read the bit-table of a direct addressing node. Only valid for {@link Arc}
+     * Helper methods to read the bit-table of a direct addressing node. Only valid
+     * for {@link Arc}
      * with {@link Arc#nodeFlags()} == {@code ARCS_FOR_DIRECT_ADDRESSING}.
      */
     static class BitTable {
@@ -345,7 +382,8 @@ public final class FST<T> implements Accountable {
       }
 
       /**
-       * See {@link BitTableUtil#countBits(int, FST.BytesReader)}. The count of bit set is the
+       * See {@link BitTableUtil#countBits(int, FST.BytesReader)}. The count of bit
+       * set is the
        * number of arcs of a direct addressing node.
        */
       static int countBits(Arc<?> arc, FST.BytesReader in) throws IOException {
@@ -415,7 +453,8 @@ public final class FST<T> implements Accountable {
   }
 
   /**
-   * Load a previously saved FST; maxBlockBits allows you to control the size of the byte[] pages
+   * Load a previously saved FST; maxBlockBits allows you to control the size of
+   * the byte[] pages
    * used to hold the FST bytes.
    */
   public FST(DataInput metaIn, DataInput in, Outputs<T> outputs, FSTStore fstStore)
@@ -425,9 +464,10 @@ public final class FST<T> implements Accountable {
     this.outputs = outputs;
 
     // NOTE: only reads formats VERSION_START up to VERSION_CURRENT; we don't have
-    // back-compat promise for FSTs (they are experimental), but we are sometimes able to offer it
+    // back-compat promise for FSTs (they are experimental), but we are sometimes
+    // able to offer it
     this.version = CodecUtil.checkHeader(metaIn, FILE_FORMAT_NAME, VERSION_START, VERSION_CURRENT);
-    if (metaIn.readByte() == 1) {
+    if (metaIn.readByte() == 1) { // 是1的话说明存在空输入
       // accepts empty string
       // 1 KB blocks:
       BytesStore emptyBytes = new BytesStore(10);
@@ -442,6 +482,7 @@ public final class FST<T> implements Accountable {
       if (numBytes > 0) {
         reader.setPosition(numBytes - 1);
       }
+      // 读取空输入的输出
       emptyOutput = outputs.readFinalOutput(reader);
     } else {
       emptyOutput = null;
@@ -460,8 +501,9 @@ public final class FST<T> implements Accountable {
       default:
         throw new CorruptIndexException("invalid input type " + t, in);
     }
+    // root节点的起始位置
     startNode = metaIn.readVLong();
-
+    // 读取fst的信息，存储在fstStore中
     long numBytes = metaIn.readVLong();
     this.fstStore.init(in, numBytes);
   }
@@ -605,7 +647,8 @@ public final class FST<T> implements Accountable {
   }
 
   /**
-   * Gets the number of bytes required to flag the presence of each arc in the given label range,
+   * Gets the number of bytes required to flag the presence of each arc in the
+   * given label range,
    * one bit per arc.
    */
   static int getNumPresenceBytes(int labelRange) {
@@ -614,7 +657,8 @@ public final class FST<T> implements Accountable {
   }
 
   /**
-   * Reads the presence bits of a direct-addressing node. Actually we don't read them here, we just
+   * Reads the presence bits of a direct-addressing node. Actually we don't read
+   * them here, we just
    * keep the pointer to the bit-table start and we skip them.
    */
   private void readPresenceBytes(Arc<T> arc, BytesReader in) throws IOException {
@@ -624,17 +668,26 @@ public final class FST<T> implements Accountable {
     in.skipBytes(getNumPresenceBytes(arc.numArcs()));
   }
 
-  /** Fills virtual 'start' arc, ie, an empty incoming arc to the FST's start node */
+  /**
+   * Fills virtual 'start' arc, ie, an empty incoming arc to the FST's start node
+   */
   public Arc<T> getFirstArc(Arc<T> arc) {
+    // 构造虚拟arc，指向的是root节点
+
+    // 读取node的第一个arc
     T NO_OUTPUT = outputs.getNoOutput();
 
     if (emptyOutput != null) {
+      // 如果存在空输入，则这是BIT_FINAL_ARC 和 BIT_LAST_ARC
+      // BIT_FINAL_ARC：空输入的情况，root就是可接受节点
+      // BIT_LAST_ARC：虚拟arc只有一个，肯定是最后一个arc
       arc.flags = BIT_FINAL_ARC | BIT_LAST_ARC;
       arc.nextFinalOutput = emptyOutput;
       if (emptyOutput != NO_OUTPUT) {
         arc.flags = (byte) (arc.flags() | BIT_ARC_HAS_FINAL_OUTPUT);
       }
     } else {
+      // BIT_LAST_ARC：虚拟arc只有一个，肯定是最后一个arc
       arc.flags = BIT_LAST_ARC;
       arc.nextFinalOutput = NO_OUTPUT;
     }
@@ -642,12 +695,14 @@ public final class FST<T> implements Accountable {
 
     // If there are no nodes, ie, the FST only accepts the
     // empty string, then startNode is 0
+    // 虚拟arc的target设置为root节点的起始位置
     arc.target = startNode;
     return arc;
   }
 
   /**
-   * Follows the <code>follow</code> arc and reads the last arc of its target; this changes the
+   * Follows the <code>follow</code> arc and reads the last arc of its target;
+   * this changes the
    * provided <code>arc</code> (2nd arg) in-place and returns it.
    *
    * @return Returns the second argument (<code>arc</code>).
@@ -655,7 +710,7 @@ public final class FST<T> implements Accountable {
   Arc<T> readLastTargetArc(Arc<T> follow, Arc<T> arc, BytesReader in) throws IOException {
     // System.out.println("readLast");
     if (!targetHasArcs(follow)) {
-      // System.out.println("  end node");
+      // System.out.println(" end node");
       assert follow.isFinal();
       arc.label = END_LABEL;
       arc.target = FINAL_END_NODE;
@@ -671,7 +726,8 @@ public final class FST<T> implements Accountable {
         // Jump straight to end to find the last arc.
         arc.numArcs = in.readVInt();
         arc.bytesPerArc = in.readVInt();
-        // System.out.println("  array numArcs=" + arc.numArcs + " bpa=" + arc.bytesPerArc);
+        // System.out.println(" array numArcs=" + arc.numArcs + " bpa=" +
+        // arc.bytesPerArc);
         if (flags == ARCS_FOR_DIRECT_ADDRESSING) {
           readPresenceBytes(arc, in);
           arc.firstLabel = readLabel(in);
@@ -686,7 +742,7 @@ public final class FST<T> implements Accountable {
         arc.flags = flags;
         // non-array: linear scan
         arc.bytesPerArc = 0;
-        // System.out.println("  scan");
+        // System.out.println(" scan");
         while (!arc.isLast()) {
           // skip this arc:
           readLabel(in);
@@ -718,16 +774,20 @@ public final class FST<T> implements Accountable {
   }
 
   /**
-   * Follow the <code>follow</code> arc and read the first arc of its target; this changes the
+   * 从follow指向的target中获取第一个arc，存储在arc变量中
+   *
+   * Follow the <code>follow</code> arc and read the first arc of its target; this
+   * changes the
    * provided <code>arc</code> (2nd arg) in-place and returns it.
    *
    * @return Returns the second argument (<code>arc</code>).
    */
   public Arc<T> readFirstTargetArc(Arc<T> follow, Arc<T> arc, BytesReader in) throws IOException {
     // int pos = address;
-    // System.out.println("    readFirstTarget follow.target=" + follow.target + " isFinal=" +
+    // System.out.println(" readFirstTarget follow.target=" + follow.target + "
+    // isFinal=" +
     // follow.isFinal());
-    if (follow.isFinal()) {
+    if (follow.isFinal()) { // 如果follow指向的是可接受节点，构造一个arc，用END_LABEL标记
       // Insert "fake" final first arc:
       arc.label = END_LABEL;
       arc.output = follow.nextFinalOutput();
@@ -736,14 +796,17 @@ public final class FST<T> implements Accountable {
         arc.flags |= BIT_LAST_ARC;
       } else {
         // NOTE: nextArc is a node (not an address!) in this case:
+        // 可以看到深度优先遍历的时候，arc.nextArc指向的是下一个节点。
+        // 这是为了处理某个输入是另一个输入前缀的情况，这种情况，深度优先遍历的下一个arc是在下一个节点中。
         arc.nextArc = follow.target();
       }
       arc.target = FINAL_END_NODE;
       arc.nodeFlags = arc.flags;
-      // System.out.println("    insert isFinal; nextArc=" + follow.target + " isLast=" +
+      // System.out.println(" insert isFinal; nextArc=" + follow.target + " isLast=" +
       // arc.isLast() + " output=" + outputs.outputToString(arc.output));
       return arc;
     } else {
+      // 如果follow不是可接受节点，则读取真实的第一个arc
       return readFirstRealTargetArc(follow.target(), arc, in);
     }
   }
@@ -751,11 +814,11 @@ public final class FST<T> implements Accountable {
   private void readFirstArcInfo(long nodeAddress, Arc<T> arc, final BytesReader in)
       throws IOException {
     in.setPosition(nodeAddress);
-    // System.out.println("   flags=" + arc.flags);
+    // System.out.println(" flags=" + arc.flags);
 
     byte flags = arc.nodeFlags = in.readByte();
     if (flags == ARCS_FOR_BINARY_SEARCH || flags == ARCS_FOR_DIRECT_ADDRESSING) {
-      // System.out.println("  fixed length arc");
+      // System.out.println(" fixed length arc");
       // Special arc which is actually a node header for fixed length arcs.
       arc.numArcs = in.readVInt();
       arc.bytesPerArc = in.readVInt();
@@ -766,7 +829,8 @@ public final class FST<T> implements Accountable {
         arc.presenceIndex = -1;
       }
       arc.posArcsStart = in.getPosition();
-      // System.out.println("  bytesPer=" + arc.bytesPerArc + " numArcs=" + arc.numArcs + "
+      // System.out.println(" bytesPer=" + arc.bytesPerArc + " numArcs=" + arc.numArcs
+      // + "
       // arcsStart=" + pos);
     } else {
       arc.nextArc = nodeAddress;
@@ -781,7 +845,8 @@ public final class FST<T> implements Accountable {
   }
 
   /**
-   * Returns whether <code>arc</code>'s target points to a node in expanded format (fixed length
+   * Returns whether <code>arc</code>'s target points to a node in expanded format
+   * (fixed length
    * arcs).
    */
   boolean isExpandedTarget(Arc<T> follow, BytesReader in) throws IOException {
@@ -807,19 +872,22 @@ public final class FST<T> implements Accountable {
     }
   }
 
-  /** Peeks at next arc's label; does not alter arc. Do not call this if arc.isLast()! */
+  /**
+   * Peeks at next arc's label; does not alter arc. Do not call this if
+   * arc.isLast()!
+   */
   int readNextArcLabel(Arc<T> arc, BytesReader in) throws IOException {
     assert !arc.isLast();
 
     if (arc.label() == END_LABEL) {
-      // System.out.println("    nextArc fake " + arc.nextArc);
+      // System.out.println(" nextArc fake " + arc.nextArc);
       // Next arc is the first arc of a node.
       // Position to read the first arc label.
 
       in.setPosition(arc.nextArc());
       byte flags = in.readByte();
       if (flags == ARCS_FOR_BINARY_SEARCH || flags == ARCS_FOR_DIRECT_ADDRESSING) {
-        // System.out.println("    nextArc fixed length arc");
+        // System.out.println(" nextArc fixed length arc");
         // Special arc which is actually a node header for fixed length arcs.
         int numArcs = in.readVInt();
         in.readVInt(); // Skip bytesPerArc.
@@ -831,7 +899,7 @@ public final class FST<T> implements Accountable {
       }
     } else {
       if (arc.bytesPerArc() != 0) {
-        // System.out.println("    nextArc real array");
+        // System.out.println(" nextArc real array");
         // Arcs have fixed length.
         if (arc.nodeFlags() == ARCS_FOR_BINARY_SEARCH) {
           // Point to next arc, -1 to skip arc flags.
@@ -848,7 +916,7 @@ public final class FST<T> implements Accountable {
         }
       } else {
         // Arcs have variable length.
-        // System.out.println("    nextArc real list");
+        // System.out.println(" nextArc real list");
         // Position to next arc, -1 to skip flags.
         in.setPosition(arc.nextArc() - 1);
       }
@@ -867,10 +935,13 @@ public final class FST<T> implements Accountable {
   }
 
   /**
-   * Reads a present direct addressing node arc, with the provided index in the label range.
+   * Reads a present direct addressing node arc, with the provided index in the
+   * label range.
    *
-   * @param rangeIndex The index of the arc in the label range. It must be present. The real arc
-   *     offset is computed based on the presence bits of the direct addressing node.
+   * @param rangeIndex The index of the arc in the label range. It must be
+   *                   present. The real arc
+   *                   offset is computed based on the presence bits of the direct
+   *                   addressing node.
    */
   public Arc<T> readArcByDirectAddressing(Arc<T> arc, final BytesReader in, int rangeIndex)
       throws IOException {
@@ -882,7 +953,8 @@ public final class FST<T> implements Accountable {
   }
 
   /**
-   * Reads a present direct addressing node arc, with the provided index in the label range and its
+   * Reads a present direct addressing node arc, with the provided index in the
+   * label range and its
    * corresponding presence index (which is the count of presence bits before it).
    */
   private Arc<T> readArcByDirectAddressing(
@@ -895,8 +967,10 @@ public final class FST<T> implements Accountable {
   }
 
   /**
-   * Reads the last arc of a direct addressing node. This method is equivalent to call {@link
-   * #readArcByDirectAddressing(Arc, BytesReader, int)} with {@code rangeIndex} equal to {@code
+   * Reads the last arc of a direct addressing node. This method is equivalent to
+   * call {@link
+   * #readArcByDirectAddressing(Arc, BytesReader, int)} with {@code rangeIndex}
+   * equal to {@code
    * arc.numArcs() - 1}, but it is faster.
    */
   public Arc<T> readLastArcByDirectAddressing(Arc<T> arc, final BytesReader in) throws IOException {
@@ -905,7 +979,9 @@ public final class FST<T> implements Accountable {
     return readArcByDirectAddressing(arc, in, arc.numArcs() - 1, presenceIndex);
   }
 
-  /** Never returns null, but you should never call this if arc.isLast() is true. */
+  /**
+   * Never returns null, but you should never call this if arc.isLast() is true.
+   */
   public Arc<T> readNextRealArc(Arc<T> arc, final BytesReader in) throws IOException {
 
     // TODO: can't assert this because we call from readFirstArc
@@ -937,29 +1013,33 @@ public final class FST<T> implements Accountable {
 
   /**
    * Reads an arc. <br>
-   * Precondition: The arc flags byte has already been read and set; the given BytesReader is
+   * Precondition: The arc flags byte has already been read and set; the given
+   * BytesReader is
    * positioned just after the arc flags byte.
    */
   private Arc<T> readArc(Arc<T> arc, BytesReader in) throws IOException {
-    if (arc.nodeFlags() == ARCS_FOR_DIRECT_ADDRESSING) {
+    // 填充arc的结构字段信息。
+    // 注意，这里是已经定位到了in中arc所在的位置了
+
+    if (arc.nodeFlags() == ARCS_FOR_DIRECT_ADDRESSING) { // 直接寻址的方式是的label需要计算
       arc.label = arc.firstLabel() + arc.arcIdx();
     } else {
       arc.label = readLabel(in);
     }
 
-    if (arc.flag(BIT_ARC_HAS_OUTPUT)) {
+    if (arc.flag(BIT_ARC_HAS_OUTPUT)) { // 读取output
       arc.output = outputs.read(in);
     } else {
       arc.output = outputs.getNoOutput();
     }
 
-    if (arc.flag(BIT_ARC_HAS_FINAL_OUTPUT)) {
+    if (arc.flag(BIT_ARC_HAS_FINAL_OUTPUT)) { // 读取finalOutput
       arc.nextFinalOutput = outputs.readFinalOutput(in);
     } else {
       arc.nextFinalOutput = outputs.getNoOutput();
     }
 
-    if (arc.flag(BIT_STOP_NODE)) {
+    if (arc.flag(BIT_STOP_NODE)) { // 这种情况，下一个节点的位置是存储在一起的
       if (arc.flag(BIT_FINAL_ARC)) {
         arc.target = FINAL_END_NODE;
       } else {
@@ -975,10 +1055,9 @@ public final class FST<T> implements Accountable {
           // must scan
           seekToNextNode(in);
         } else {
-          int numArcs =
-              arc.nodeFlags == ARCS_FOR_DIRECT_ADDRESSING
-                  ? BitTable.countBits(arc, in)
-                  : arc.numArcs();
+          int numArcs = arc.nodeFlags == ARCS_FOR_DIRECT_ADDRESSING
+              ? BitTable.countBits(arc, in)
+              : arc.numArcs();
           in.setPosition(arc.posArcsStart() - arc.bytesPerArc() * (long) numArcs);
         }
       }
@@ -1011,14 +1090,22 @@ public final class FST<T> implements Accountable {
   // like automaton?
 
   /**
-   * Finds an arc leaving the incoming arc, replacing the arc in place. This returns null if the arc
-   * was not found, else the incoming arc.
+   * Finds an arc leaving the incoming arc, replacing the arc in place. This
+   * returns null if the arc was not found, else the incoming arc.
+   * <pre>
+   * 参数说明：
+   * - labelToMatch 要匹配的标签值，单个字符，比如cat中的c
+   * - follow 表示我们要从这条边开始查找
+   * - arc 表示找到的边，保存结果，返回值也是这个arc，lucene通过复用这个arc避免频繁创建对象
+   * - in  输入流
+   * 如果 follow的target() 小于0 返回null
+   * </pre>
    */
   public Arc<T> findTargetArc(int labelToMatch, Arc<T> follow, Arc<T> arc, BytesReader in)
       throws IOException {
 
-    if (labelToMatch == END_LABEL) {
-      if (follow.isFinal()) {
+    if (labelToMatch == END_LABEL) { // 匹配的label如果是一个特殊值-1表示结束
+      if (follow.isFinal()) { // 如果要找的是label是END_LABEL的话，必须follow是可接受节点
         if (follow.target() <= 0) {
           arc.flags = BIT_LAST_ARC;
         } else {
@@ -1035,22 +1122,28 @@ public final class FST<T> implements Accountable {
       }
     }
 
-    if (!targetHasArcs(follow)) {
+    if (!targetHasArcs(follow)) { // 要查找的节点没有arc，直接返回null
+      SourceLogger.info(FST.class,"findTargetArc() return null! as Arc [{}] target is -1!" ,(char)follow.label);
       return null;
     }
 
+    // 定位到target边的位置
     in.setPosition(follow.target());
 
-    // System.out.println("fta label=" + (char) labelToMatch);
-
+    // 读取边的flag
     byte flags = arc.nodeFlags = in.readByte();
-    if (flags == ARCS_FOR_DIRECT_ADDRESSING) {
+
+    if (flags == ARCS_FOR_DIRECT_ADDRESSING) { // 1.以直接寻址的方式查找
+      SourceLogger.info(FST.class, "findTargetArc 以直接寻址的方式查找 Arc target:{}",(char)labelToMatch);
+
+      // 读取用以直接寻址的头部信息
       arc.numArcs = in.readVInt(); // This is in fact the label range.
       arc.bytesPerArc = in.readVInt();
       readPresenceBytes(arc, in);
       arc.firstLabel = readLabel(in);
       arc.posArcsStart = in.getPosition();
 
+      // 按直接寻址的方式查找，先从位图判断是否存在该label的arc，如果存在则获取存储的下标，直接定位到arc位置读取信息
       int arcIndex = labelToMatch - arc.firstLabel();
       if (arcIndex < 0 || arcIndex >= arc.numArcs()) {
         return null; // Before or after label range.
@@ -1058,16 +1151,19 @@ public final class FST<T> implements Accountable {
         return null; // Arc missing in the range.
       }
       return readArcByDirectAddressing(arc, in, arcIndex);
-    } else if (flags == ARCS_FOR_BINARY_SEARCH) {
+    } else if (flags == ARCS_FOR_BINARY_SEARCH) { // 2.以二分查找的方式查找
+      SourceLogger.info(FST.class, "findTargetArc 以二分查找的方式查找 Arc target:{}",(char)labelToMatch);
+      // 读取用以二分查找的头部信息
       arc.numArcs = in.readVInt();
       arc.bytesPerArc = in.readVInt();
       arc.posArcsStart = in.getPosition();
 
+      // 二分查找的实现
       // Array is sparse; do binary search:
       int low = 0;
       int high = arc.numArcs() - 1;
       while (low <= high) {
-        // System.out.println("    cycle");
+        // System.out.println(" cycle");
         int mid = (low + high) >>> 1;
         // +1 to skip over flags
         in.setPosition(arc.posArcsStart() - (arc.bytesPerArc() * mid + 1));
@@ -1079,7 +1175,7 @@ public final class FST<T> implements Accountable {
           high = mid - 1;
         } else {
           arc.arcIdx = mid - 1;
-          // System.out.println("    found!");
+          // System.out.println(" found!");
           return readNextRealArc(arc, in);
         }
       }
@@ -1087,6 +1183,7 @@ public final class FST<T> implements Accountable {
     }
 
     // Linear scan
+    // 3.线性查找：先读取到第一个arc，然后使用 readNextRealArc 方法来遍历
     readFirstArcInfo(follow.target(), arc, in);
     in.setPosition(arc.nextArc());
     while (true) {
@@ -1094,9 +1191,11 @@ public final class FST<T> implements Accountable {
       flags = arc.flags = in.readByte();
       long pos = in.getPosition();
       int label = readLabel(in);
-      if (label == labelToMatch) {
+      if (label == labelToMatch) {//匹配到了对应的边
         in.setPosition(pos);
-        return readArc(arc, in);
+        arc = readArc(arc, in);
+        SourceLogger.info(FST.class, "findTargetArc 线性查找 Arc[{}], target:[{}]",(char)labelToMatch,arc.target());
+        return arc;
       } else if (label > labelToMatch) {
         return null;
       } else if (arc.isLast()) {

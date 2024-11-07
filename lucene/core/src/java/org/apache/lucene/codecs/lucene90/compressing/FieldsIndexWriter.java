@@ -58,8 +58,8 @@ public final class FieldsIndexWriter implements Closeable {
   private final IOContext ioContext;
   private IndexOutput docsOut;
   private IndexOutput filePointersOut;
-  private int totalDocs;
-  private int totalChunks;
+  private int totalDocs;//写入的文档数量
+  private int totalChunks;//chunk数量
   private long previousFP;
 
   FieldsIndexWriter(
@@ -100,7 +100,7 @@ public final class FieldsIndexWriter implements Closeable {
     filePointersOut.writeVLong(startPointer - previousFP);
     previousFP = startPointer;
     totalDocs += numDocs;
-    totalChunks++;
+    totalChunks++;//记录chunk数量
   }
 
   void finish(int numDocs, long maxPointer, IndexOutput metaOut) throws IOException {

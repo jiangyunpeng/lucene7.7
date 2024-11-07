@@ -59,9 +59,9 @@ public abstract class ByteBufferIndexInput extends IndexInput implements RandomA
       long length,
       int chunkSizePower,
       ByteBufferGuard guard) {
-    if (buffers.length == 1) {
+    if (buffers.length == 1) {//说明小于1g
       return new SingleBufferImpl(resourceDescription, buffers[0], length, chunkSizePower, guard);
-    } else {
+    } else {//说明大于1g
       return new MultiBufferImpl(resourceDescription, buffers, 0, length, chunkSizePower, guard);
     }
   }
@@ -114,7 +114,7 @@ public abstract class ByteBufferIndexInput extends IndexInput implements RandomA
   @Override
   public final byte readByte() throws IOException {
     try {
-      return guard.getByte(curBuf);
+        return guard.getByte(curBuf);
     } catch (
         @SuppressWarnings("unused")
         BufferUnderflowException e) {

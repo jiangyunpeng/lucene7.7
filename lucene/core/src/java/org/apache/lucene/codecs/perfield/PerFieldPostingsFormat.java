@@ -351,7 +351,7 @@ public abstract class PerFieldPostingsFormat extends PostingsFormat {
 
     @Override
     public Terms terms(String field) throws IOException {
-      FieldsProducer fieldsProducer = fields.get(field);
+      FieldsProducer fieldsProducer = fields.get(field);//实际是Lucene90BlockTreeTermsReader
       return fieldsProducer == null ? null : fieldsProducer.terms(field);
     }
 

@@ -35,6 +35,7 @@ import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.IOConsumer;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.InfoStream;
+import org.apache.lucene.util.SourceLogger;
 
 /**
  * This class accepts multiple added documents and directly writes segment files.
@@ -417,7 +418,7 @@ final class DocumentsWriter implements Closeable, Accountable {
       // waits for all DWPT to be released:
       ensureOpen();
       try {
-        seqNo =
+        seqNo =//处理文档的写入
             dwpt.updateDocuments(docs, delNode, flushNotifications, numDocsInRAM::incrementAndGet);
       } finally {
         if (dwpt.isAborted()) {
@@ -425,6 +426,7 @@ final class DocumentsWriter implements Closeable, Accountable {
         }
       }
       flushingDWPT = flushControl.doAfterDocument(dwpt);
+      //如果 flushingDWPT 不为null则需要强制flush，会触发StoredFieldsConsumer.flush()
     } finally {
       if (dwpt.isFlushPending() || dwpt.isAborted()) {
         dwpt.unlock();

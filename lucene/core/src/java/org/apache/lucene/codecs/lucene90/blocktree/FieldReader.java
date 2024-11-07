@@ -88,7 +88,7 @@ public final class FieldReader extends Terms {
     rootBlockFP =
         readVLongOutput(new ByteArrayDataInput(rootCode.bytes, rootCode.offset, rootCode.length))
             >>> Lucene90BlockTreeTermsReader.OUTPUT_FLAGS_NUM_BITS;
-    // Initialize FST always off-heap.
+    // Initialize FST always off-heap. 始终在堆外初始化 FST。
     final IndexInput clone = indexIn.clone();
     clone.seek(indexStartFP);
     index = new FST<>(metaIn, clone, ByteSequenceOutputs.getSingleton(), new OffHeapFSTStore());
@@ -180,7 +180,7 @@ public final class FieldReader extends Terms {
 
   @Override
   public TermsEnum iterator() throws IOException {
-    return new SegmentTermsEnum(this);
+    return new SegmentTermsEnum(this);//SegmentTermsEnum 代表可以遍历Filed的Term， 内部会初始化 fstReader
   }
 
   @Override

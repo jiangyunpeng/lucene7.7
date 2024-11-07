@@ -2,7 +2,7 @@ package mytest;
 
 
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.codecs.simpletext.SimpleTextCodec;
+//import org.apache.lucene.codecs.simpletext.SimpleTextCodec;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
@@ -15,6 +15,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.stream.Stream;
 
 /**
@@ -29,7 +30,6 @@ public class LuceneBuilder {
     /**
      * 返回 IndexWriterBuilder
      *
-     * @return
      */
     public static IndexWriterBuilder indexWriterBuilder() {
         return new IndexWriterBuilder();
@@ -38,7 +38,6 @@ public class LuceneBuilder {
     /**
      * 返回 IndexSearcherBuilder
      *
-     * @return
      */
     public static IndexSearcherBuilder indexSearcherBuilder() {
         return new IndexSearcherBuilder();
@@ -81,7 +80,7 @@ public class LuceneBuilder {
             config.setUseCompoundFile(false);//是否CompoundFile
             if (simpleTextCodec) {
                 config.setOpenMode(IndexWriterConfig.OpenMode.CREATE);
-                config.setCodec(new SimpleTextCodec());
+                //config.setCodec(new SimpleTextCodec());
             }
             return new IndexWriter(memoryIndex, config);
         }
@@ -102,13 +101,13 @@ public class LuceneBuilder {
         }
 
         public IndexSearcher build() throws IOException {
-            Path path = FileSystems.getDefault().getPath("/data/tmp/lucene-data", topic);
-            Directory memoryIndex = new MMapDirectory(path);
+            Path path = Paths.get("/data/tmp/lucene-data", topic);
+            Directory directory = new MMapDirectory(path);
             IndexReader indexReader;
             if (writer != null) {
                 indexReader = DirectoryReader.open(writer);
             } else {
-                indexReader = DirectoryReader.open(memoryIndex);
+                indexReader = DirectoryReader.open(directory);
             }
             return new IndexSearcher(indexReader);
         }

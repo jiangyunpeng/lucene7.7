@@ -37,6 +37,7 @@ import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.CollectionUtil;
 import org.apache.lucene.util.IOUtils;
+import org.apache.lucene.util.SourceLogger;
 import org.apache.lucene.util.fst.ByteSequenceOutputs;
 import org.apache.lucene.util.fst.Outputs;
 
@@ -99,7 +100,7 @@ public final class Lucene90BlockTreeTermsReader extends FieldsProducer {
 
   static final String TERMS_META_CODEC_NAME = "BlockTreeTermsMeta";
 
-  // Open input to the main terms dict file (_X.tib)
+  // Open input to the main terms dict file (_X.tim)
   final IndexInput termsIn;
   // Open input to the terms index file (_X.tip)
   final IndexInput indexIn;
@@ -127,8 +128,8 @@ public final class Lucene90BlockTreeTermsReader extends FieldsProducer {
 
     try {
       String termsName =
-          IndexFileNames.segmentFileName(segment, state.segmentSuffix, TERMS_EXTENSION);
-      termsIn = state.directory.openInput(termsName, state.context);
+          IndexFileNames.segmentFileName(segment, state.segmentSuffix, TERMS_EXTENSION);//词典数据文件.tim
+      termsIn = state.directory.openInput(termsName, state.context);//打开词典数据，返回一个ByteBufferIndexInput
       version =
           CodecUtil.checkIndexHeader(
               termsIn,
@@ -139,7 +140,7 @@ public final class Lucene90BlockTreeTermsReader extends FieldsProducer {
               state.segmentSuffix);
 
       String indexName =
-          IndexFileNames.segmentFileName(segment, state.segmentSuffix, TERMS_INDEX_EXTENSION);
+          IndexFileNames.segmentFileName(segment, state.segmentSuffix, TERMS_INDEX_EXTENSION);//词典索引文件.tip
       indexIn = state.directory.openInput(indexName, IOContext.LOAD);
       CodecUtil.checkIndexHeader(
           indexIn,
@@ -151,7 +152,7 @@ public final class Lucene90BlockTreeTermsReader extends FieldsProducer {
 
       // Read per-field details
       String metaName =
-          IndexFileNames.segmentFileName(segment, state.segmentSuffix, TERMS_META_EXTENSION);
+          IndexFileNames.segmentFileName(segment, state.segmentSuffix, TERMS_META_EXTENSION);//tmd文件记录字段信息
       Map<String, FieldReader> fieldMap = null;
       Throwable priorE = null;
       long indexLength = -1, termsLength = -1;
@@ -167,14 +168,16 @@ public final class Lucene90BlockTreeTermsReader extends FieldsProducer {
               state.segmentSuffix);
           postingsReader.init(metaIn, state);
 
-          final int numFields = metaIn.readVInt();
+          final int numFields = metaIn.readVInt();//字段数量
           if (numFields < 0) {
             throw new CorruptIndexException("invalid numFields: " + numFields, metaIn);
           }
+          SourceLogger.info("init Lucene90BlockTreeTermsReader indexName:[{}] numFields:[{}]",indexName,numFields);
+
           fieldMap = CollectionUtil.newHashMap(numFields);
-          for (int i = 0; i < numFields; ++i) {
-            final int field = metaIn.readVInt();
-            final long numTerms = metaIn.readVLong();
+          for (int i = 0; i < numFields; ++i) {//字段数量循环
+            final int field = metaIn.readVInt();//序号
+            final long numTerms = metaIn.readVLong();//词的数量
             if (numTerms <= 0) {
               throw new CorruptIndexException(
                   "Illegal numTerms for field number: " + field, metaIn);
@@ -191,7 +194,7 @@ public final class Lucene90BlockTreeTermsReader extends FieldsProducer {
                 fieldInfo.getIndexOptions() == IndexOptions.DOCS
                     ? sumTotalTermFreq
                     : metaIn.readVLong();
-            final int docCount = metaIn.readVInt();
+            final int docCount = metaIn.readVInt();//对应文档数量
             BytesRef minTerm = readBytesRef(metaIn);
             BytesRef maxTerm = readBytesRef(metaIn);
             if (docCount < 0
@@ -209,7 +212,7 @@ public final class Lucene90BlockTreeTermsReader extends FieldsProducer {
                   "invalid sumTotalTermFreq: " + sumTotalTermFreq + " sumDocFreq: " + sumDocFreq,
                   metaIn);
             }
-            final long indexStartFP = metaIn.readVLong();
+            final long indexStartFP = metaIn.readVLong();//记录字段在tsi中的位置
             FieldReader previous =
                 fieldMap.put(
                     fieldInfo.name,
@@ -225,7 +228,13 @@ public final class Lucene90BlockTreeTermsReader extends FieldsProducer {
                         metaIn,
                         indexIn,
                         minTerm,
-                        maxTerm));
+                        maxTerm)); //初始化FieldReader
+            //记录日志
+            SourceLogger.info(Lucene90BlockTreeTermsReader.class,"init block-tree FieldReader filed:[{}],numTerms:[{}],docCount:[{}],indexStartFP:[{}]",
+                      fieldInfo.name,
+                      numTerms,
+                      docCount,
+                      indexStartFP);
             if (previous != null) {
               throw new CorruptIndexException("duplicate field: " + fieldInfo.name, metaIn);
             }
@@ -247,7 +256,7 @@ public final class Lucene90BlockTreeTermsReader extends FieldsProducer {
       CodecUtil.retrieveChecksum(indexIn, indexLength);
       CodecUtil.retrieveChecksum(termsIn, termsLength);
       List<String> fieldList = new ArrayList<>(fieldMap.keySet());
-      fieldList.sort(null);
+      fieldList.sort(null);//排序
       this.fieldMap = fieldMap;
       this.fieldList = Collections.unmodifiableList(fieldList);
       success = true;

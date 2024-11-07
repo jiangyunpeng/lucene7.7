@@ -402,10 +402,12 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
     }
 
     long totalDocs = 0;
+    //循环解析得到 SegmentCommitInfo 并加入到 SegmentInfos
     for (int seg = 0; seg < numSegments; seg++) {
       String segName = input.readString();
-      byte[] segmentID = new byte[StringHelper.ID_LENGTH];
+      byte[] segmentID = new byte[StringHelper.ID_LENGTH];//固定16长度
       input.readBytes(segmentID, 0, segmentID.length);
+      //不同的版本会有不同的Codec，比如当前是Lucene99Codec
       Codec codec = readCodec(input);
       SegmentInfo info =
           codec.segmentInfoFormat().read(directory, segName, segmentID, IOContext.READ);
@@ -451,6 +453,7 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
           new SegmentCommitInfo(info, delCount, softDelCount, delGen, fieldInfosGen, dvGen, sciId);
       siPerCommit.setFieldInfosFiles(input.readSetOfStrings());
       final Map<Integer, Set<String>> dvUpdateFiles;
+      //从按照大端字节序读取int
       final int numDVFields = CodecUtil.readBEInt(input);
       if (numDVFields == 0) {
         dvUpdateFiles = Collections.emptyMap();
@@ -462,7 +465,7 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
         dvUpdateFiles = Collections.unmodifiableMap(map);
       }
       siPerCommit.setDocValuesUpdatesFiles(dvUpdateFiles);
-      infos.add(siPerCommit);
+      infos.add(siPerCommit);//添加
 
       Version segmentVersion = info.getVersion();
 

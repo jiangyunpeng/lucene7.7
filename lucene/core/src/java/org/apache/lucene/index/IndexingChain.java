@@ -256,14 +256,14 @@ final class IndexingChain implements Accountable {
             state.segmentSuffix);
 
     t0 = System.nanoTime();
-    writeDocValues(state, sortMap);
+    writeDocValues(state, sortMap);//写入DocsValue
     if (infoStream.isEnabled("IW")) {
       infoStream.message(
           "IW", TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0) + " ms to write docValues");
     }
 
     t0 = System.nanoTime();
-    writePoints(state, sortMap);
+    writePoints(state, sortMap); //写入Points
     if (infoStream.isEnabled("IW")) {
       infoStream.message(
           "IW", TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0) + " ms to write points");
@@ -307,6 +307,7 @@ final class IndexingChain implements Accountable {
         // Use the merge instance in order to reuse the same IndexInput for all terms
         normsMergeInstance = norms.getMergeInstance();
       }
+      //持久化倒排索引
       termsHash.flush(fieldsToFlush, state, sortMap, normsMergeInstance);
     }
     if (infoStream.isEnabled("IW")) {
@@ -573,6 +574,7 @@ final class IndexingChain implements Accountable {
       // also count the number of unique fields indexed with postings
       docFieldIdx = 0;
       for (IndexableField field : document) {
+        //写入document中的每个字段
         if (processField(docID, field, docFields[docFieldIdx])) {
           fields[indexedFieldCount] = docFields[docFieldIdx];
           indexedFieldCount++;
@@ -691,7 +693,7 @@ final class IndexingChain implements Accountable {
     IndexableFieldType fieldType = field.fieldType();
     boolean indexedField = false;
 
-    // Invert indexed fields
+    // ① 如果字段是是索引类型，添加到倒排索引
     if (fieldType.indexOptions() != IndexOptions.NONE) {
       if (pf.first) { // first time we see this field in this doc
         pf.invert(docID, field, true);
@@ -702,7 +704,7 @@ final class IndexingChain implements Accountable {
       }
     }
 
-    // Add stored fields
+    //② 如果是存储字段，调用StoredFieldsConsumer写入
     if (fieldType.stored()) {
       StoredValue storedValue = field.storedValue();
       if (storedValue == null) {
@@ -717,6 +719,7 @@ final class IndexingChain implements Accountable {
                 + " characters) to store");
       }
       try {
+        //写入 StoredFieldsConsumer 内部的缓冲区
         storedFieldsConsumer.writeField(pf.fieldInfo, storedValue);
       } catch (Throwable th) {
         onAbortingException(th);
@@ -725,12 +728,15 @@ final class IndexingChain implements Accountable {
     }
 
     DocValuesType dvType = fieldType.docValuesType();
+    //③ 如果是DocValues类型
     if (dvType != DocValuesType.NONE) {
       indexDocValue(docID, pf, dvType, field);
     }
+    //④ 如果是PackValue类型
     if (fieldType.pointDimensionCount() != 0) {
       pf.pointValuesWriter.addPackedValue(docID, field.binaryValue());
     }
+    //⑤ 如果是VectorValue
     if (fieldType.vectorDimension() != 0) {
       indexVectorValue(docID, pf, fieldType.vectorEncoding(), field);
     }
@@ -1024,6 +1030,7 @@ final class IndexingChain implements Accountable {
   }
 
   /** NOTE: not static: accesses at least docState, termsHash. */
+  //PerField 封装了Field信息，每个Filed都有一个 TermsHashPerField
   private final class PerField implements Comparable<PerField> {
     final String fieldName;
     final int indexCreatedVersionMajor;

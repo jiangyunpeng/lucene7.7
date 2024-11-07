@@ -39,8 +39,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+
 import org.apache.lucene.util.Constants;
 import org.apache.lucene.util.IOUtils;
+import org.apache.lucene.util.SourceLogger;
 
 /**
  * Base class for Directory implementations that store index files in the file system. <a
@@ -210,6 +212,7 @@ public abstract class FSDirectory extends BaseDirectory {
 
   @Override
   public IndexOutput createOutput(String name, IOContext context) throws IOException {
+    //SourceLogger.info(FSDirectory.class,"new output {}",name);
     ensureOpen();
     maybeDeletePendingFiles();
     // If this file was pending delete, we are now bringing it back to life:

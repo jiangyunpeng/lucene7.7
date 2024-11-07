@@ -29,6 +29,7 @@ import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.IOUtils;
+import org.apache.lucene.util.SourceLogger;
 
 /** Writer for {@link Lucene90NormsFormat} */
 final class Lucene90NormsConsumer extends NormsConsumer {

@@ -35,6 +35,7 @@ import java.util.Optional;
 import java.util.logging.Logger;
 import org.apache.lucene.store.ByteBufferGuard.BufferCleaner;
 import org.apache.lucene.util.Constants;
+import org.apache.lucene.util.SourceLogger;
 import org.apache.lucene.util.SuppressForbidden;
 
 final class MappedByteBufferIndexInputProvider implements MMapDirectory.MMapIndexInputProvider {
@@ -64,6 +65,7 @@ final class MappedByteBufferIndexInputProvider implements MMapDirectory.MMapInde
   @Override
   public IndexInput openInput(Path path, IOContext context, int chunkSizePower, boolean preload)
       throws IOException {
+    //chunkSizePower默认是30，表示2的30次方，刚好是1G，也就是1<<30
     if (chunkSizePower > 30) {
       throw new IllegalArgumentException(
           "ByteBufferIndexInput cannot use a chunk size of >1 GiBytes.");
@@ -71,10 +73,12 @@ final class MappedByteBufferIndexInputProvider implements MMapDirectory.MMapInde
 
     final String resourceDescription = "ByteBufferIndexInput(path=\"" + path.toString() + "\")";
 
+    //创建FileChannel
     try (var fc = FileChannel.open(path, StandardOpenOption.READ)) {
       final long fileSize = fc.size();
       return ByteBufferIndexInput.newInstance(
           resourceDescription,
+          //执行mmap
           map(resourceDescription, fc, chunkSizePower, preload, fileSize),
           fileSize,
           chunkSizePower,
@@ -105,10 +109,10 @@ final class MappedByteBufferIndexInputProvider implements MMapDirectory.MMapInde
       throw new IllegalArgumentException(
           "RandomAccessFile too big for chunk size: " + resourceDescription);
 
-    final long chunkSize = 1L << chunkSizePower;
+    final long chunkSize = 1L << chunkSizePower; //还原chunkSize，默认1g
 
     // we always allocate one more buffer, the last one may be a 0 byte one
-    final int nrBuffers = (int) (length >>> chunkSizePower) + 1;
+    final int nrBuffers = (int) (length >>> chunkSizePower) + 1;//根据文件大小创建对应buffer，每个buffer占用1g
 
     final ByteBuffer[] buffers = new ByteBuffer[nrBuffers];
 
@@ -164,11 +168,13 @@ final class MappedByteBufferIndexInputProvider implements MMapDirectory.MMapInde
       // without doing any security critical stuff:
       final MethodHandle unmapper =
           lookup.findVirtual(
-              unsafeClass, "invokeCleaner", methodType(void.class, ByteBuffer.class));
+              unsafeClass, "invokeCleaner", methodType(void.class, ByteBuffer.class));//返回Unsafe.invokeCleaner()的方法句柄
       // fetch the unsafe instance and bind it to the virtual MH:
       final Field f = unsafeClass.getDeclaredField("theUnsafe");
       f.setAccessible(true);
       final Object theUnsafe = f.get(null);
+      //首先，通过unmapper.bindTo()重新绑定到Unsafe这个类，修改了field权限
+      //然后，通过newBufferCleaner()返回了一个BufferCleaner的匿名类
       return newBufferCleaner(unmapper.bindTo(theUnsafe));
     } catch (SecurityException se) {
       return "Unmapping is not supported, because not all required permissions are given to the Lucene JAR file: "
@@ -191,7 +197,8 @@ final class MappedByteBufferIndexInputProvider implements MMapDirectory.MMapInde
 
   private static BufferCleaner newBufferCleaner(final MethodHandle unmapper) {
     assert Objects.equals(methodType(void.class, ByteBuffer.class), unmapper.type());
-    return (String resourceDescription, ByteBuffer buffer) -> {
+    //BufferCleaner匿名类
+    return (resourceDescription, buffer) -> {
       if (!buffer.isDirect()) {
         throw new IllegalArgumentException("unmapping only works with direct buffers");
       }

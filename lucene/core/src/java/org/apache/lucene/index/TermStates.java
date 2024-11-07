@@ -125,8 +125,13 @@ public final class TermStates {
   }
 
   private static TermsEnum loadTermsEnum(LeafReaderContext ctx, Term term) throws IOException {
+    //① 根据字段名返回对应的FieldReader，底层通过Lucene90BlockTreeTermsReader中的map返回FieldReader
     final Terms terms = Terms.getTerms(ctx.reader(), term.field());
+
+    //② 返回 SegmentTermsEnum, SegmentTermsEnum代表可以遍历Filed的Term
     final TermsEnum termsEnum = terms.iterator();
+
+    //③ 寻找查询的值，如果找到就返回该TermsEnum
     if (termsEnum.seekExact(term.bytes())) {
       return termsEnum;
     }

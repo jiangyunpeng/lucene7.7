@@ -55,11 +55,11 @@ class StoredFieldsConsumer {
   void startDocument(int docID) throws IOException {
     assert lastDoc < docID;
     initStoredFieldsWriter();
-    while (++lastDoc < docID) {
+    while (++lastDoc < docID) {// 确保doc是连续的
       writer.startDocument();
       writer.finishDocument();
     }
-    writer.startDocument();
+    writer.startDocument();    //  Lucene90CompressingStoredFieldsWriter 中开始处理doc，空实现
   }
 
   void writeField(FieldInfo info, StoredValue value) throws IOException {

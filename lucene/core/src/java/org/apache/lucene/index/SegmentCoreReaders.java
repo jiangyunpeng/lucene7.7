@@ -113,10 +113,10 @@ final class SegmentCoreReaders {
 
       final SegmentReadState segmentReadState =
           new SegmentReadState(cfsDir, si.info, coreFieldInfos, context);
-      if (coreFieldInfos.hasPostings()) {
+      if (coreFieldInfos.hasPostings()) {//是否包含倒排表信息
         final PostingsFormat format = codec.postingsFormat();
         // Ask codec for its Fields
-        fields = format.fieldsProducer(segmentReadState);
+        fields = format.fieldsProducer(segmentReadState);//初始化 Lucene90BlockTreeTermsReader
         assert fields != null;
       } else {
         fields = null;

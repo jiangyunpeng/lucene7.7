@@ -163,7 +163,7 @@ public class Lucene90StoredFieldsFormat extends StoredFieldsFormat {
         return new Lucene90CompressingStoredFieldsFormat(
             "Lucene90StoredFieldsHighData",
             BEST_COMPRESSION_MODE,
-            BEST_COMPRESSION_BLOCK_LENGTH,
+            BEST_COMPRESSION_BLOCK_LENGTH, //48k
             4096,
             10);
       default:
